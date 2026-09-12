@@ -1,5 +1,13 @@
-import asyncio
+import sys
 import os
+
+# --- HOTFIX: Bypass lỗi _torchaudio.abi3.so trên Ubuntu CPU ---
+os.environ["TORCHAUDIO_USE_BACKEND_DISPATCHER"] = "0"
+import torch
+torch.ops.load_library = lambda x: None
+# -------------------------------------------------------------
+
+import asyncio
 import subprocess
 import tempfile
 import time
@@ -136,61 +144,4 @@ async def transcribe(interaction: discord.Interaction, file: discord.Attachment)
 
         if not ok or not os.path.exists(output_path):
             await interaction.edit_original_response(
-                embed=base_embed("Chuyển đổi thất bại", f"{BAR}\n```\n{err}\n```", color=COLOR_ERR)
-            )
-            return
-
-        try:
-            stats = await asyncio.to_thread(analyze_midi, output_path)
-        except Exception as e:
-            stats = None
-            analyze_error = str(e)
-
-        out_name = Path(file.filename).stem + ".mid"
-        midi_file = discord.File(output_path, filename=out_name)
-
-        result = base_embed("Chuyển đổi hoàn tất", color=COLOR_OK)
-        result.add_field(name="File gốc", value=f"`{file.filename}`", inline=True)
-        result.add_field(name="Dung lượng", value=f"{file.size / 1024:.1f} KB", inline=True)
-        result.add_field(name="Model", value="Transkun V2", inline=True)
-
-        if stats:
-            result.add_field(name="Thời lượng", value=fmt_duration(stats["duration"]), inline=True)
-            result.add_field(name="Số nốt nhạc", value=f"{stats['note_count']:,}".replace(",", "."), inline=True)
-            result.add_field(name="Mật độ nốt", value=f"{stats['density']} nốt/giây", inline=True)
-            result.add_field(name="Tầm âm", value=f"{stats['lowest']} → {stats['highest']}", inline=True)
-            result.add_field(name="Tempo ước tính", value=f"{stats['tempo']} BPM", inline=True)
-            result.add_field(name="Vận tốc TB", value=f"{stats['avg_velocity']} / 127", inline=True)
-        else:
-            result.add_field(name="Thống kê MIDI", value=f"Không đọc được chi tiết ({analyze_error})", inline=False)
-
-        result.add_field(name="Thời gian xử lý", value=f"{elapsed:.1f} giây", inline=True)
-
-        await interaction.edit_original_response(embed=result, attachments=[midi_file])
-
-
-@client.event
-async def on_ready():
-    activity = discord.Activity(type=discord.ActivityType.watching, name="/transcribe | MP3 → MIDI")
-    await client.change_presence(status=discord.Status.idle, activity=activity)
-
-    if GUILD_ID:
-        guild = discord.Object(id=int(GUILD_ID))
-        tree.copy_global_to(guild=guild)
-        synced = await tree.sync(guild=guild)
-        print(f"Đã sync thành công {len(synced)} lệnh cho Guild ID: {GUILD_ID}")
-    else:
-        synced = await tree.sync()
-        print(f"Đã sync thành công {len(synced)} lệnh Global.")
-
-    print(f"Đã đăng nhập thành công: {client.user} (ID: {client.user.id})")
-
-
-def main():
-    if not TOKEN:
-        raise SystemExit("Thiếu biến môi trường DISCORD_TOKEN.")
-    client.run(TOKEN)
-
-
-if __name__ == "__main__":
-    main()
+                embed=base_embed("Chuyển đổi thất bại", f"{BAR}\n```\n{err}\n
