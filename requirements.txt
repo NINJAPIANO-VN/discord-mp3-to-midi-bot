@@ -3,6 +3,4 @@ pretty_midi
 soundfile
 numpy<2.0.0
 python-dotenv
-torch
-torchaudio
 transkun
