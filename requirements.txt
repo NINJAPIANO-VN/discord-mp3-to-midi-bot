@@ -3,4 +3,4 @@ pretty_midi
 soundfile
 numpy
 python-dotenv
-transkun --no-deps
+transkun
