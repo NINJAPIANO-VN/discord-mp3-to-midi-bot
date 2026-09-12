@@ -177,9 +177,12 @@ async def on_ready():
     if GUILD_ID:
         guild = discord.Object(id=int(GUILD_ID))
         tree.copy_global_to(guild=guild)
-        await tree.sync(guild=guild)
+        synced = await tree.sync(guild=guild)
+        print(f"Đã sync thành công {len(synced)} lệnh cho Guild ID: {GUILD_ID}")
     else:
-        await tree.sync()
+        synced = await tree.sync()
+        print(f"Đã sync thành công {len(synced)} lệnh Global.")
+
     print(f"Đã đăng nhập thành công: {client.user} (ID: {client.user.id})")
 
 
