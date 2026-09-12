@@ -29,11 +29,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg libsndfile1
 
-      - name: Cài PyTorch và TorchAudio (bản CPU đồng bộ)
-        run: pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-
-      - name: Cài các thư viện còn lại
-        run: pip install -r requirements.txt
+      - name: Cài PyTorch CPU và các thư viện liên quan
+        run: |
+          pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 
       - name: Chạy bot
         env:
