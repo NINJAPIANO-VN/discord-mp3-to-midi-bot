@@ -6,11 +6,11 @@ on:
     - cron: "0 */6 * * *"
 
 concurrency:
-  group: discord-mp3-midi-bot-v2
+  group: discord-mp3-midi-bot
   cancel-in-progress: false
 
 jobs:
-  run-bot-clean:
+  run-bot:
     runs-on: ubuntu-latest
     timeout-minutes: 350
 
@@ -21,36 +21,20 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
-          cache: ""
+          python-version: "3.11"
 
       - name: Cài ffmpeg và thư viện hệ thống
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg libsndfile1
 
-      - name: Cài đặt PyTorch chuẩn
+      - name: Cài đặt thư viện Python
         run: |
           python -m pip install --upgrade pip
-          pip install --no-cache-dir torch torchaudio
-          pip install --no-cache-dir -r requirements.txt
-
-      - name: Tạo file Patch cho Torchaudio
-        run: |
-          cat << 'EOF' > /tmp/patch_torchaudio.py
-          import os
-          os.environ["TORCHAUDIO_USE_BACKEND_DISPATCHER"] = "0"
-          try:
-              import torch
-              torch.ops.load_library = lambda x: None
-          except Exception:
-              pass
-          EOF
+          pip install -r requirements.txt
 
       - name: Chạy bot
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
           DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
-          PYTHONSTARTUP: /tmp/patch_torchaudio.py
-          TORCHAUDIO_USE_BACKEND_DISPATCHER: "0"
         run: python bot.py
