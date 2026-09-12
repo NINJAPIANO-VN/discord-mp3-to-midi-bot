@@ -6,11 +6,11 @@ on:
     - cron: "0 */6 * * *"
 
 concurrency:
-  group: discord-mp3-midi-bot
+  group: discord-mp3-midi-bot-v2
   cancel-in-progress: false
 
 jobs:
-  run-bot:
+  run-bot-clean:
     runs-on: ubuntu-latest
     timeout-minutes: 350
 
@@ -22,13 +22,14 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
+          cache: ""
 
       - name: Cài ffmpeg và thư viện hệ thống
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg libsndfile1
 
-      - name: Cài đặt thư viện Python
+      - name: Cài đặt PyTorch chuẩn
         run: |
           python -m pip install --upgrade pip
           pip install --no-cache-dir torch torchaudio
