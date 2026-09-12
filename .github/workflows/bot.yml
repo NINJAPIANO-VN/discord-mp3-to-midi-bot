@@ -3,7 +3,7 @@ name: Discord MP3-to-MIDI Bot
 on:
   workflow_dispatch: {}
   schedule:
-    - cron: "0 */6 * * *" # Tự động chạy lại mỗi 6 giờ
+    - cron: "0 */6 * * *"
 
 concurrency:
   group: discord-mp3-midi-bot
@@ -29,8 +29,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg libsndfile1
 
-      - name: Cài PyTorch (bản CPU nhẹ)
-        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Cài PyTorch và TorchAudio (bản CPU đồng bộ)
+        run: pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
 
       - name: Cài các thư viện còn lại
         run: pip install -r requirements.txt
