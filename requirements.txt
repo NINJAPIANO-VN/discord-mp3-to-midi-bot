@@ -1,6 +1,6 @@
 discord.py>=2.3.2
 pretty_midi
 soundfile
-numpy
+numpy<2.0.0
 python-dotenv
 transkun
