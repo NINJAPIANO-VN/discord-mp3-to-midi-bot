@@ -1,0 +1,9 @@
+apps:
+  - name: discord-transkun-bot
+    script: bot.py
+    interpreter: python
+    autorestart: true
+    watch: false
+    max_memory_restart: 2G
+    env:
+      PYTHONUNBUFFERED: "1"
