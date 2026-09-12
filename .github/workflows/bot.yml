@@ -31,11 +31,25 @@ jobs:
       - name: Cài đặt thư viện Python
         run: |
           python -m pip install --upgrade pip
-          pip install --no-cache-dir torch==2.0.1 torchaudio==2.0.2 --index-url https://download.pytorch.org/whl/cpu
+          pip install --no-cache-dir torch torchaudio
           pip install --no-cache-dir -r requirements.txt
+
+      - name: Tạo file Patch cho Torchaudio
+        run: |
+          cat << 'EOF' > /tmp/patch_torchaudio.py
+          import os
+          os.environ["TORCHAUDIO_USE_BACKEND_DISPATCHER"] = "0"
+          try:
+              import torch
+              torch.ops.load_library = lambda x: None
+          except Exception:
+              pass
+          EOF
 
       - name: Chạy bot
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
           DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
+          PYTHONSTARTUP: /tmp/patch_torchaudio.py
+          TORCHAUDIO_USE_BACKEND_DISPATCHER: "0"
         run: python bot.py
