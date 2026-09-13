@@ -4,3 +4,4 @@ soundfile
 numpy<2.0.0
 python-dotenv
 transkun
+yt-dlp
