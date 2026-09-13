@@ -6,7 +6,7 @@ on:
     - cron: "0 */6 * * *"
 
 concurrency:
-  group: discord-mp3-midi-bot-v6
+  group: discord-mp3-midi-bot-v7
   cancel-in-progress: false
 
 jobs:
@@ -28,10 +28,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg libsndfile1
 
-      - name: Cài đặt thư viện Python
+      - name: Cài đặt PyTorch & Torchaudio CPU chuẩn
         run: |
           python -m pip install --upgrade pip
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt
 
       - name: Chạy bot
