@@ -2,37 +2,37 @@ import sys
 import os
 import types
 
-# --- 1. MOCK HOÀN TOÀN TORCHAUDIO TRƯỚC KHI IMPORT TRANSKUN ---
+# ==============================================================================
+# 1. TRIỆT ĐỂ PATCH MOCK TORCHAUDIO TRƯỚC KHI IMPORT BẤT KỲ THƯ VIỆN NÀO
+# ==============================================================================
 os.environ["TORCHAUDIO_USE_BACKEND_DISPATCHER"] = "0"
 
 import torch
 torch.ops.load_library = lambda x: None
 
-# Tạo module torchaudio giả để không bao giờ load file _torchaudio.abi3.so
-if "torchaudio" not in sys.modules:
-    mock_torchaudio = types.ModuleType("torchaudio")
-    mock_ext = types.ModuleType("torchaudio._extension")
-    mock_ext._IS_TORCHAUDIO_EXT_AVAILABLE = False
-    mock_ext._load_lib = lambda x: None
-    
-    # Tạo transforms giả lập nếu transkun cần resample
-    mock_transforms = types.ModuleType("torchaudio.transforms")
-    class DummyResample(torch.nn.Module):
-        def __init__(self, orig_freq, new_freq):
-            super().__init__()
-            self.orig_freq = orig_freq
-            self.new_freq = new_freq
-        def forward(self, waveform):
-            return waveform
-            
-    mock_transforms.Resample = DummyResample
-    mock_torchaudio.transforms = mock_transforms
-    mock_torchaudio._extension = mock_ext
-    
-    sys.modules["torchaudio"] = mock_torchaudio
-    sys.modules["torchaudio._extension"] = mock_ext
-    sys.modules["torchaudio.transforms"] = mock_transforms
-# -------------------------------------------------------------
+# Giả lập hoàn toàn package torchaudio trong sys.modules
+mock_torchaudio = types.ModuleType("torchaudio")
+mock_ext = types.ModuleType("torchaudio._extension")
+mock_ext._IS_TORCHAUDIO_EXT_AVAILABLE = False
+mock_ext._load_lib = lambda x: None
+
+mock_transforms = types.ModuleType("torchaudio.transforms")
+
+class DummyModule(torch.nn.Module):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+    def forward(self, x):
+        return x
+
+mock_transforms.Resample = DummyModule
+mock_transforms.MelSpectrogram = DummyModule
+mock_torchaudio.transforms = mock_transforms
+mock_torchaudio._extension = mock_ext
+
+sys.modules["torchaudio"] = mock_torchaudio
+sys.modules["torchaudio._extension"] = mock_ext
+sys.modules["torchaudio.transforms"] = mock_transforms
+# ==============================================================================
 
 import asyncio
 import tempfile
@@ -81,14 +81,14 @@ def fmt_duration(seconds: float) -> str:
 
 def run_transkun_pure_python(input_path: str, output_path: str) -> tuple[bool, str]:
     """
-    Chạy TransKun trực tiếp bằng SoundFile và PyTorch Pure Python API.
+    Chạy TransKun trực tiếp bằng SoundFile và PyTorch Pure Python.
     """
     try:
         import soundfile as sf
         import transkun
         import transkun.Util
 
-        # Patch hàm đọc audio của transkun dùng SoundFile thuần Python
+        # Patch hàm loadAudio của transkun
         def custom_audio_loader(filepath):
             data, samplerate = sf.read(filepath, dtype='float32')
             tensor = torch.from_numpy(data)
@@ -98,14 +98,42 @@ def run_transkun_pure_python(input_path: str, output_path: str) -> tuple[bool, s
                 tensor = tensor.T.contiguous()
             return tensor, samplerate
 
+        # Ghi đè MelSpectrum của TransKun bằng PyTorch STFT thuần
+        class PureTorchMelSpectrum(torch.nn.Module):
+            def __init__(self, win_length, hop_length, n_fft, n_mels, sample_rate):
+                super().__init__()
+                self.win_length = win_length
+                self.hop_length = hop_length
+                self.n_fft = n_fft
+                
+                # Biến đổi Mel Filterbank bằng torch thuần
+                window = torch.hann_window(win_length)
+                self.register_buffer("window", window)
+
+            def forward(self, x):
+                if x.ndim == 3:
+                    x = x.squeeze(1)
+                stft = torch.stft(
+                    x, 
+                    n_fft=self.n_fft, 
+                    hop_length=self.hop_length, 
+                    win_length=self.win_length, 
+                    window=self.window, 
+                    return_complex=True
+                )
+                spectrogram = torch.abs(stft) ** 2
+                return spectrogram
+
         transkun.Util.loadAudio = custom_audio_loader
+        transkun.Util.MelSpectrum = PureTorchMelSpectrum
 
         device = torch.device("cpu")
         
-        # Load model và chạy transcribeDataset từ package transkun
+        # Load mô hình TransKun
         model = transkun.TransKun().to(device)
         model.eval()
 
+        # Thực thi chuyển đổi
         transkun.transcribeDataset(model, input_path, output_path, device=device)
 
         return True, ""
@@ -188,61 +216,4 @@ async def transcribe(interaction: discord.Interaction, file: discord.Attachment)
 
         if not ok or not os.path.exists(output_path):
             await interaction.edit_original_response(
-                embed=base_embed("Chuyển đổi thất bại", f"{BAR}\n```\n{err}\n```", color=COLOR_ERR)
-            )
-            return
-
-        try:
-            stats = await asyncio.to_thread(analyze_midi, output_path)
-        except Exception as e:
-            stats = None
-            analyze_error = str(e)
-
-        out_name = Path(file.filename).stem + ".mid"
-        midi_file = discord.File(output_path, filename=out_name)
-
-        result = base_embed("Chuyển đổi hoàn tất", color=COLOR_OK)
-        result.add_field(name="File gốc", value=f"`{file.filename}`", inline=True)
-        result.add_field(name="Dung lượng", value=f"{file.size / 1024:.1f} KB", inline=True)
-        result.add_field(name="Model", value="Transkun V2", inline=True)
-
-        if stats:
-            result.add_field(name="Thời lượng", value=fmt_duration(stats["duration"]), inline=True)
-            result.add_field(name="Số nốt nhạc", value=f"{stats['note_count']:,}".replace(",", "."), inline=True)
-            result.add_field(name="Mật độ nốt", value=f"{stats['density']} nốt/giây", inline=True)
-            result.add_field(name="Tầm âm", value=f"{stats['lowest']} → {stats['highest']}", inline=True)
-            result.add_field(name="Tempo ước tính", value=f"{stats['tempo']} BPM", inline=True)
-            result.add_field(name="Vận tốc TB", value=f"{stats['avg_velocity']} / 127", inline=True)
-        else:
-            result.add_field(name="Thống kê MIDI", value=f"Không đọc được chi tiết ({analyze_error})", inline=False)
-
-        result.add_field(name="Thời gian xử lý", value=f"{elapsed:.1f} giây", inline=True)
-
-        await interaction.edit_original_response(embed=result, attachments=[midi_file])
-
-
-@client.event
-async def on_ready():
-    activity = discord.Activity(type=discord.ActivityType.watching, name="/transcribe | MP3 → MIDI")
-    await client.change_presence(status=discord.Status.idle, activity=activity)
-
-    if GUILD_ID:
-        guild = discord.Object(id=int(GUILD_ID))
-        tree.copy_global_to(guild=guild)
-        synced = await tree.sync(guild=guild)
-        print(f"Đã sync thành công {len(synced)} lệnh cho Guild ID: {GUILD_ID}")
-    else:
-        synced = await tree.sync()
-        print(f"Đã sync thành công {len(synced)} lệnh Global.")
-
-    print(f"Đã đăng nhập thành công: {client.user} (ID: {client.user.id})")
-
-
-def main():
-    if not TOKEN:
-        raise SystemExit("Thiếu biến môi trường DISCORD_TOKEN.")
-    client.run(TOKEN)
-
-
-if __name__ == "__main__":
-    main()
+                embed=base_embed("Chuyển đổi thất bại", f"{BAR}\n```\n{err}\n
