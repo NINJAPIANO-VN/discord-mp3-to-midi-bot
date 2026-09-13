@@ -34,7 +34,7 @@ def base_embed(title: str, description: str = "", color: int = COLOR_MAIN) -> di
     embed = discord.Embed(title=title, description=description, color=color)
     if client.user:
         embed.set_footer(
-            text="Transkun V2 · MP3 → MIDI",
+            text="Transkun V2 · Audio/Link → MIDI",
             icon_url=client.user.display_avatar.url,
         )
     embed.timestamp = discord.utils.utcnow()
@@ -44,6 +44,32 @@ def base_embed(title: str, description: str = "", color: int = COLOR_MAIN) -> di
 def fmt_duration(seconds: float) -> str:
     m, s = divmod(int(seconds), 60)
     return f"{m:02d}:{s:02d}"
+
+
+def download_audio_from_link(url: str, output_path: str) -> tuple[bool, str]:
+    """
+    Tải audio từ link (YouTube, SoundCloud,...) bằng yt-dlp và chuyển thành MP3/WAV.
+    """
+    import yt_dlp
+
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': output_path,
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'wav',
+            'preferredquality': '192',
+        }],
+        'quiet': True,
+        'no_warnings': True,
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+        return True, ""
+    except Exception as e:
+        return False, str(e)
 
 
 def run_transkun_cli(input_path: str, output_path: str) -> tuple[bool, str]:
@@ -104,65 +130,102 @@ def analyze_midi(midi_path: str) -> dict:
     return stats
 
 
-@tree.command(name="transcribe", description="Chuyển file MP3/WAV piano thành MIDI bằng Transkun V2")
-@app_commands.describe(file="File âm thanh piano cần chuyển (mp3, wav, m4a, ogg, flac)")
-async def transcribe(interaction: discord.Interaction, file: discord.Attachment):
-    ext = Path(file.filename).suffix.lower()
-
-    if ext not in ALLOWED_EXT:
+@tree.command(name="transcribe", description="Chuyển đổi âm thanh (File hoặc Link) thành file MIDI")
+@app_commands.describe(
+    file="File âm thanh piano cần chuyển (mp3, wav, m4a, ogg, flac)",
+    url="Đường link bài nhạc (YouTube, SoundCloud, v.v.)"
+)
+async def transcribe(
+    interaction: discord.Interaction, 
+    file: discord.Attachment = None, 
+    url: str = None
+):
+    if not file and not url:
         await interaction.response.send_message(
-            embed=base_embed("Định dạng không hỗ trợ", f"Chỉ chấp nhận: `{', '.join(sorted(ALLOWED_EXT))}`", color=COLOR_ERR),
-            ephemeral=True,
-        )
-        return
-
-    if file.size > MAX_FILE_MB * 1024 * 1024:
-        await interaction.response.send_message(
-            embed=base_embed("File quá lớn", f"Giới hạn hiện tại: **{MAX_FILE_MB} MB**.", color=COLOR_ERR),
+            embed=base_embed("Thiếu thông tin", "Vui lòng tải lên 1 file đính kèm **HOẶC** dán 1 đường link nhạc.", color=COLOR_ERR),
             ephemeral=True,
         )
         return
 
     await interaction.response.defer(thinking=True)
 
-    working = base_embed(
-        "Đang xử lý",
-        f"{BAR}\nĐang chuyển **{file.filename}** sang MIDI với Transkun V2...\nQuá trình này có thể mất vài phút tuỳ độ dài bản nhạc.",
-        color=COLOR_WORKING,
-    )
-    await interaction.edit_original_response(embed=working)
-
     with tempfile.TemporaryDirectory() as tmp:
-        input_path = os.path.join(tmp, f"input{ext}")
-        output_path = os.path.join(tmp, "output.mid")
+        input_audio_path = os.path.join(tmp, "input_track")
+        midi_output_path = os.path.join(tmp, "output.mid")
+        source_name = ""
 
-        audio_bytes = await file.read()
-        with open(input_path, "wb") as f:
-            f.write(audio_bytes)
+        # Trường hợp 1: Người dùng gửi link
+        if url:
+            working = base_embed(
+                "Đang tải bài nhạc từ link",
+                f"{BAR}\nĐang xử lý dữ liệu âm thanh từ link:\n`{url}`",
+                color=COLOR_WORKING,
+            )
+            await interaction.edit_original_response(embed=working)
+
+            dl_ok, dl_err = await asyncio.to_thread(download_audio_from_link, url, input_audio_path)
+            if not dl_ok:
+                await interaction.edit_original_response(
+                    embed=base_embed("Không thể tải bài nhạc", f"{BAR}\nLỗi khi tải từ link:\n```\n{dl_err[:500]}\n```", color=COLOR_ERR)
+                )
+                return
+            
+            # yt-dlp tự động thêm đuôi .wav
+            input_audio_path = input_audio_path + ".wav"
+            source_name = "URL Link"
+
+        # Trường hợp 2: Người dùng gửi file đính kèm
+        elif file:
+            ext = Path(file.filename).suffix.lower()
+            if ext not in ALLOWED_EXT:
+                await interaction.edit_original_response(
+                    embed=base_embed("Định dạng không hỗ trợ", f"Chỉ chấp nhận: `{', '.join(sorted(ALLOWED_EXT))}`", color=COLOR_ERR)
+                )
+                return
+
+            if file.size > MAX_FILE_MB * 1024 * 1024:
+                await interaction.edit_original_response(
+                    embed=base_embed("File quá lớn", f"Giới hạn hiện tại: **{MAX_FILE_MB} MB**.", color=COLOR_ERR)
+                )
+                return
+
+            input_audio_path = os.path.join(tmp, f"input{ext}")
+            audio_bytes = await file.read()
+            with open(input_audio_path, "wb") as f:
+                f.write(audio_bytes)
+            source_name = file.filename
+
+        # Bắt đầu quá trình Transcribe sang MIDI
+        working = base_embed(
+            "Đang tạo MIDI",
+            f"{BAR}\nĐang trích xuất nốt nhạc bằng Transkun V2...\nQuá trình này có thể mất vài phút.",
+            color=COLOR_WORKING,
+        )
+        await interaction.edit_original_response(embed=working)
 
         start = time.time()
-        ok, err = await asyncio.to_thread(run_transkun_cli, input_path, output_path)
+        ok, err = await asyncio.to_thread(run_transkun_cli, input_audio_path, midi_output_path)
         elapsed = time.time() - start
 
-        if not ok or not os.path.exists(output_path):
+        if not ok or not os.path.exists(midi_output_path):
             await interaction.edit_original_response(
                 embed=base_embed("Chuyển đổi thất bại", f"{BAR}\n```\n{err}\n```", color=COLOR_ERR)
             )
             return
 
         try:
-            stats = await asyncio.to_thread(analyze_midi, output_path)
+            stats = await asyncio.to_thread(analyze_midi, midi_output_path)
         except Exception as e:
             stats = None
             analyze_error = str(e)
 
-        out_name = Path(file.filename).stem + ".mid"
-        midi_file = discord.File(output_path, filename=out_name)
+        out_name = (Path(source_name).stem if source_name != "URL Link" else "converted_track") + ".mid"
+        midi_file = discord.File(midi_output_path, filename=out_name)
 
         result = base_embed("Chuyển đổi hoàn tất", color=COLOR_OK)
-        result.add_field(name="File gốc", value=f"`{file.filename}`", inline=True)
-        result.add_field(name="Dung lượng", value=f"{file.size / 1024:.1f} KB", inline=True)
+        result.add_field(name="Nguồn", value=f"`{source_name}`", inline=True)
         result.add_field(name="Model", value="Transkun V2", inline=True)
+        result.add_field(name="Thời gian xử lý", value=f"{elapsed:.1f} giây", inline=True)
 
         if stats:
             result.add_field(name="Thời lượng", value=fmt_duration(stats["duration"]), inline=True)
@@ -174,14 +237,12 @@ async def transcribe(interaction: discord.Interaction, file: discord.Attachment)
         else:
             result.add_field(name="Thống kê MIDI", value=f"Không đọc được chi tiết ({analyze_error})", inline=False)
 
-        result.add_field(name="Thời gian xử lý", value=f"{elapsed:.1f} giây", inline=True)
-
         await interaction.edit_original_response(embed=result, attachments=[midi_file])
 
 
 @client.event
 async def on_ready():
-    activity = discord.Activity(type=discord.ActivityType.watching, name="/transcribe | MP3 → MIDI")
+    activity = discord.Activity(type=discord.ActivityType.watching, name="/transcribe | File/Link → MIDI")
     await client.change_presence(status=discord.Status.idle, activity=activity)
 
     if GUILD_ID:
