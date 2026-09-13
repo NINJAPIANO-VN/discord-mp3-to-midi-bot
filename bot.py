@@ -1,11 +1,8 @@
-import sys
 import os
-
-# Tắt warning dispatcher của torchaudio trên môi trường CPU
-os.environ["TORCHAUDIO_USE_BACKEND_DISPATCHER"] = "0"
-
+import sys
 import asyncio
 import tempfile
+import subprocess
 import time
 from pathlib import Path
 
@@ -49,28 +46,30 @@ def fmt_duration(seconds: float) -> str:
     return f"{m:02d}:{s:02d}"
 
 
-def run_transkun_official(input_path: str, output_path: str) -> tuple[bool, str]:
+def run_transkun_cli(input_path: str, output_path: str) -> tuple[bool, str]:
     """
-    Gọi trực tiếp entrypoint main() của TransKun qua sys.argv.
+    Gọi trực tiếp CLI transkun thông qua subprocess.
     """
-    try:
-        from transkun.transcribe import main as transkun_main
+    cmd = [
+        sys.executable,
+        "-m",
+        "transkun.transcribe",
+        input_path,
+        output_path,
+        "--device",
+        "cpu",
+    ]
 
-        # Lưu lại sys.argv gốc
-        old_argv = sys.argv
-        sys.argv = ["transkun", input_path, output_path, "--device", "cpu"]
+    env = os.environ.copy()
+    env["TORCHAUDIO_USE_BACKEND_DISPATCHER"] = "0"
 
-        try:
-            transkun_main()
-        finally:
-            sys.argv = old_argv
+    res = subprocess.run(cmd, capture_output=True, text=True, env=env)
 
-        if os.path.exists(output_path):
-            return True, ""
-        return False, "File MIDI không được khởi tạo sau khi transcribe."
-    except Exception as e:
-        import traceback
-        return False, f"{str(e)}\n{traceback.format_exc()[-1000:]}"
+    if res.returncode == 0 and os.path.exists(output_path):
+        return True, ""
+
+    err_msg = res.stderr.strip() if res.stderr else res.stdout.strip()
+    return False, err_msg[-1000:] if err_msg else "Không thể khởi tạo file MIDI output."
 
 
 def analyze_midi(midi_path: str) -> dict:
@@ -142,7 +141,7 @@ async def transcribe(interaction: discord.Interaction, file: discord.Attachment)
             f.write(audio_bytes)
 
         start = time.time()
-        ok, err = await asyncio.to_thread(run_transkun_official, input_path, output_path)
+        ok, err = await asyncio.to_thread(run_transkun_cli, input_path, output_path)
         elapsed = time.time() - start
 
         if not ok or not os.path.exists(output_path):
