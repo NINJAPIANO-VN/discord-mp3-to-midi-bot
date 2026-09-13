@@ -1,9 +1,18 @@
 import sys
 import os
+import types
 
-# Hotfix vô hiệu hóa load_library của PyTorch trước khi import transkun
+# --- 1. PATCH TORCHAUDIO & TORCH C++ EXTENSION ---
+os.environ["TORCHAUDIO_USE_BACKEND_DISPATCHER"] = "0"
+
 import torch
 torch.ops.load_library = lambda x: None
+
+ext_mock = types.ModuleType("torchaudio._extension")
+ext_mock._IS_TORCHAUDIO_EXT_AVAILABLE = False
+ext_mock._load_lib = lambda x: None
+sys.modules["torchaudio._extension"] = ext_mock
+# ----------------------------------------------------
 
 import asyncio
 import tempfile
@@ -50,16 +59,44 @@ def fmt_duration(seconds: float) -> str:
     return f"{m:02d}:{s:02d}"
 
 
-def run_transkun_direct(input_path: str, output_path: str) -> tuple[bool, str]:
-    """Gọi trực tiếp mô hình TransKun bằng Python API thay vì chạy subprocess CLI."""
+def run_transkun_pure_python(input_path: str, output_path: str) -> tuple[bool, str]:
+    """
+    Chạy TransKun thuần Python bằng API chuẩn của gói transkun.
+    """
     try:
-        from transkun.transcribe import transcribe as transkun_transcribe
+        import soundfile as sf
+        import torchaudio
+        import transkun
+        import transkun.Util
 
-        # Chạy transcribe với device CPU
-        transkun_transcribe(input_path, output_path, device="cpu")
+        # Patch hàm đọc audio của transkun bằng soundfile để bypass torchaudio C++ backend
+        def custom_audio_loader(filepath):
+            data, samplerate = sf.read(filepath, dtype='float32')
+            tensor = torch.from_numpy(data)
+            if tensor.ndim == 1:
+                tensor = tensor.unsqueeze(0)
+            else:
+                tensor = tensor.T
+            if samplerate != 44100:
+                resampler = torchaudio.transforms.Resample(orig_freq=samplerate, new_freq=44100)
+                tensor = resampler(tensor)
+            return tensor, 44100
+
+        transkun.Util.loadAudio = custom_audio_loader
+
+        device = torch.device("cpu")
+        
+        # Gọi class TransKun và hàm transcribeDataset từ package transkun
+        model = transkun.TransKun().to(device)
+        model.eval()
+
+        # Thực hiện transcribe
+        transkun.transcribeDataset(model, input_path, output_path, device=device)
+
         return True, ""
     except Exception as e:
-        return False, str(e)
+        import traceback
+        return False, f"{str(e)}\n{traceback.format_exc()[-1000:]}"
 
 
 def analyze_midi(midi_path: str) -> dict:
@@ -131,7 +168,7 @@ async def transcribe(interaction: discord.Interaction, file: discord.Attachment)
             f.write(audio_bytes)
 
         start = time.time()
-        ok, err = await asyncio.to_thread(run_transkun_direct, input_path, output_path)
+        ok, err = await asyncio.to_thread(run_transkun_pure_python, input_path, output_path)
         elapsed = time.time() - start
 
         if not ok or not os.path.exists(output_path):
