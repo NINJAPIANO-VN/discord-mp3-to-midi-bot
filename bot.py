@@ -2,17 +2,37 @@ import sys
 import os
 import types
 
-# --- 1. PATCH TORCHAUDIO & TORCH C++ EXTENSION ---
+# --- 1. MOCK HOÀN TOÀN TORCHAUDIO TRƯỚC KHI IMPORT TRANSKUN ---
 os.environ["TORCHAUDIO_USE_BACKEND_DISPATCHER"] = "0"
 
 import torch
 torch.ops.load_library = lambda x: None
 
-ext_mock = types.ModuleType("torchaudio._extension")
-ext_mock._IS_TORCHAUDIO_EXT_AVAILABLE = False
-ext_mock._load_lib = lambda x: None
-sys.modules["torchaudio._extension"] = ext_mock
-# ----------------------------------------------------
+# Tạo module torchaudio giả để không bao giờ load file _torchaudio.abi3.so
+if "torchaudio" not in sys.modules:
+    mock_torchaudio = types.ModuleType("torchaudio")
+    mock_ext = types.ModuleType("torchaudio._extension")
+    mock_ext._IS_TORCHAUDIO_EXT_AVAILABLE = False
+    mock_ext._load_lib = lambda x: None
+    
+    # Tạo transforms giả lập nếu transkun cần resample
+    mock_transforms = types.ModuleType("torchaudio.transforms")
+    class DummyResample(torch.nn.Module):
+        def __init__(self, orig_freq, new_freq):
+            super().__init__()
+            self.orig_freq = orig_freq
+            self.new_freq = new_freq
+        def forward(self, waveform):
+            return waveform
+            
+    mock_transforms.Resample = DummyResample
+    mock_torchaudio.transforms = mock_transforms
+    mock_torchaudio._extension = mock_ext
+    
+    sys.modules["torchaudio"] = mock_torchaudio
+    sys.modules["torchaudio._extension"] = mock_ext
+    sys.modules["torchaudio.transforms"] = mock_transforms
+# -------------------------------------------------------------
 
 import asyncio
 import tempfile
@@ -61,36 +81,31 @@ def fmt_duration(seconds: float) -> str:
 
 def run_transkun_pure_python(input_path: str, output_path: str) -> tuple[bool, str]:
     """
-    Chạy TransKun thuần Python bằng API chuẩn của gói transkun.
+    Chạy TransKun trực tiếp bằng SoundFile và PyTorch Pure Python API.
     """
     try:
         import soundfile as sf
-        import torchaudio
         import transkun
         import transkun.Util
 
-        # Patch hàm đọc audio của transkun bằng soundfile để bypass torchaudio C++ backend
+        # Patch hàm đọc audio của transkun dùng SoundFile thuần Python
         def custom_audio_loader(filepath):
             data, samplerate = sf.read(filepath, dtype='float32')
             tensor = torch.from_numpy(data)
             if tensor.ndim == 1:
                 tensor = tensor.unsqueeze(0)
             else:
-                tensor = tensor.T
-            if samplerate != 44100:
-                resampler = torchaudio.transforms.Resample(orig_freq=samplerate, new_freq=44100)
-                tensor = resampler(tensor)
-            return tensor, 44100
+                tensor = tensor.T.contiguous()
+            return tensor, samplerate
 
         transkun.Util.loadAudio = custom_audio_loader
 
         device = torch.device("cpu")
         
-        # Gọi class TransKun và hàm transcribeDataset từ package transkun
+        # Load model và chạy transcribeDataset từ package transkun
         model = transkun.TransKun().to(device)
         model.eval()
 
-        # Thực hiện transcribe
         transkun.transcribeDataset(model, input_path, output_path, device=device)
 
         return True, ""
