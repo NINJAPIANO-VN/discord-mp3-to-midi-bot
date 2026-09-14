@@ -60,7 +60,7 @@ def resolve_spotify_track(url: str) -> Optional[str]:
         pass
     return None
 
-def download_audio_from_link(url: str, output_base_path: str) -> tuple[bool, str, str]:
+def download_audio_from_link(url: str, output_base_path: str) -> tuple[bool, str, str, str]:
     import yt_dlp
     query_or_url = url
     if "spotify.com" in url:
@@ -73,7 +73,6 @@ def download_audio_from_link(url: str, output_base_path: str) -> tuple[bool, str
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': output_base_path,
-        'cookiefile': 'cookies.txt',  # <--- Add this line
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'wav',
@@ -83,6 +82,11 @@ def download_audio_from_link(url: str, output_base_path: str) -> tuple[bool, str
         'no_warnings': True,
         'default_search': 'ytsearch',
     }
+
+    # Pass cookies to yt-dlp if available
+    if os.path.exists("cookies.txt"):
+        ydl_opts['cookiefile'] = "cookies.txt"
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             # Lấy thông tin track để làm title
