@@ -73,6 +73,7 @@ def download_audio_from_link(url: str, output_base_path: str) -> tuple[bool, str
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': output_base_path,
+        'cookiefile': 'cookies.txt',  # <--- Add this line
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'wav',
@@ -82,7 +83,6 @@ def download_audio_from_link(url: str, output_base_path: str) -> tuple[bool, str
         'no_warnings': True,
         'default_search': 'ytsearch',
     }
-
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             # Lấy thông tin track để làm title
