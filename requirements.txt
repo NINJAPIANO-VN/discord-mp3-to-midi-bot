@@ -4,5 +4,5 @@ soundfile
 numpy<2.0.0
 python-dotenv
 transkun
-yt-dlp
+yt-dlp>=2024.08.06
 spotipy
