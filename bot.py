@@ -213,7 +213,7 @@ async def transcribe(
 
         description = (
             f"{stats_ui}\n\n"
-            f"Drop it in Velo. /sheet for QWERTY letters. Covers go in <#1234567890>.\n\n" # Bạn có thể thay ID kênh showcase của bạn vào đây
+            f"Hãy sử dụng lại lệnh `/transcribe` trong <#1545367143359713330> để chuyển đổi MP3 sang MIDI, và chuyển đổi liên kết sang MIDI.\n\n" # Bạn có thể thay ID kênh showcase của bạn vào đây
             f"{interaction.user.mention}"
         )
 
