@@ -73,6 +73,7 @@ def download_audio_from_link(url: str, output_base_path: str) -> tuple[bool, str
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': output_base_path,
+        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'wav',
@@ -83,18 +84,24 @@ def download_audio_from_link(url: str, output_base_path: str) -> tuple[bool, str
         'default_search': 'ytsearch',
     }
 
-    # Pass cookies to yt-dlp if available
     if os.path.exists("cookies.txt"):
         ydl_opts['cookiefile'] = "cookies.txt"
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Lấy thông tin track để làm title
             info = ydl.extract_info(query_or_url, download=True)
-            title = info.get('title', 'Unknown Track')
             
+            if not info:
+                return False, "Không tìm thấy nội dung âm thanh phù hợp.", "", ""
+
+            # Xử lý an toàn khi kết quả là playlist/search entries
             if 'entries' in info:
-                title = info['entries'][0].get('title', 'Unknown Track')
+                entries = [e for e in info['entries'] if e is not None]
+                if not entries:
+                    return False, "Không tìm thấy video nào từ kết quả tìm kiếm.", "", ""
+                title = entries[0].get('title', 'Unknown Track')
+            else:
+                title = info.get('title', 'Unknown Track')
 
         final_file = output_base_path + ".wav"
         if not os.path.exists(final_file):
@@ -106,7 +113,6 @@ def download_audio_from_link(url: str, output_base_path: str) -> tuple[bool, str
         return True, "", final_file, title
     except Exception as e:
         return False, str(e), "", ""
-
 def run_transkun_cli(input_path: str, output_path: str) -> tuple[bool, str]:
     cmd = [sys.executable, "-m", "transkun.transcribe", input_path, output_path, "--device", "cpu"]
     env = os.environ.copy()
