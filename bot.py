@@ -70,16 +70,11 @@ def download_audio_from_link(url: str, output_base_path: str) -> tuple[bool, str
         else:
             query_or_url = f"ytsearch1:{url}"
 
-    ydl_opts = {
+ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': output_base_path,
-        # Force mobile iOS/Android clients which bypass YouTube's IP bot checks
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['ios', 'android', 'mweb'],
-                'skip': ['webpage', 'configs'],
-            }
-        },
+        'username': 'oauth2',
+        'password': '',
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'wav',
