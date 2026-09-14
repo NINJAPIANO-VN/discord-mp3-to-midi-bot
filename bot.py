@@ -227,7 +227,7 @@ async def transcribe(
 
 @client.event
 async def on_ready():
-    activity = discord.Activity(type=discord.ActivityType.watching, name="/transcribe")
+    activity = discord.Activity(type=discord.ActivityType.listening, name="/transcribe ㆍ NINJAPIANO IS THE BEST")
     await client.change_presence(status=discord.Status.idle, activity=activity)
 
     if GUILD_ID:
