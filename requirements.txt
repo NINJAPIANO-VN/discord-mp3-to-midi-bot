@@ -5,4 +5,5 @@ numpy<2.0.0
 python-dotenv
 transkun
 yt-dlp>=2024.08.06
+yt-dlp-youtube-oauth2
 spotipy
