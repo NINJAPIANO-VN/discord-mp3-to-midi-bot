@@ -73,7 +73,13 @@ def download_audio_from_link(url: str, output_base_path: str) -> tuple[bool, str
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': output_base_path,
-        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+        # Force mobile iOS/Android clients which bypass YouTube's IP bot checks
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['ios', 'android', 'mweb'],
+                'skip': ['webpage', 'configs'],
+            }
+        },
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'wav',
@@ -94,7 +100,6 @@ def download_audio_from_link(url: str, output_base_path: str) -> tuple[bool, str
             if not info:
                 return False, "Không tìm thấy nội dung âm thanh phù hợp.", "", ""
 
-            # Xử lý an toàn khi kết quả là playlist/search entries
             if 'entries' in info:
                 entries = [e for e in info['entries'] if e is not None]
                 if not entries:
