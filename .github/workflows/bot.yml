@@ -38,4 +38,6 @@ jobs:
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
           DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
-          YT_COOKIES: ${{ secrets.YT_COOKIES }}
+          TIKHUB_API_TOKEN: ${{ secrets.TIKHUB_API_TOKEN }}
+        run: |
+          python bot.py
