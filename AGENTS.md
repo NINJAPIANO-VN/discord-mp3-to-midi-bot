@@ -20,7 +20,7 @@ Since this is a bot with no web UI, a minimal status server (`status_server.py`)
 
 ## Dev Environment
 - Docker compose: `docker-compose.base44.yml`
-- Build: `Dockerfile.base44` (python:3.11-slim + ffmpeg + torch CPU)
+- Build: `Dockerfile.base44` (python:3.11-slim + ffmpeg, no torch — keeps image small)
 - Source is bind-mounted at `/app` — edits appear on container restart
 - The bot auto-restarts if it crashes (see entrypoint.sh)
 - Status page: http://localhost:3000
@@ -28,6 +28,6 @@ Since this is a bot with no web UI, a minimal status server (`status_server.py`)
 - Restart after editing bot.py: `docker compose -f docker-compose.base44.yml restart bot`
 
 ## Notes
-- torch is installed CPU-only (torch==2.1.2 torchaudio==2.1.2) to keep the image smaller
+- torch is NOT installed (it adds ~2GB, exceeding Docker storage). The bot connects to Discord and handles audio downloads; MIDI transcription (transkun) needs torch and will fail until it's added.
 - The bot has no live-reload; restart the service after editing bot.py
 - The status server checks /proc to determine if the bot process is alive
