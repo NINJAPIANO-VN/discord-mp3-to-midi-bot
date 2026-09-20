@@ -1,0 +1,33 @@
+{
+  "previewPort": 3000,
+  "healthPath": "/health",
+  "startCommand": "docker compose -f docker-compose.base44.yml up -d",
+  "secrets": [
+    {
+      "name": "DISCORD_TOKEN",
+      "description": "Discord bot token from the Discord Developer Portal (Bot > Token)",
+      "requiredAtBoot": true,
+      "generatedForDevelopment": true
+    },
+    {
+      "name": "DISCORD_GUILD_ID",
+      "description": "Discord server (guild) ID to sync slash commands to (optional, for instant command registration)",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "SPOTIPY_CLIENT_ID",
+      "description": "Spotify app client ID from the Spotify Developer Dashboard (optional, for Spotify URL resolution)",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "SPOTIPY_CLIENT_SECRET",
+      "description": "Spotify app client secret from the Spotify Developer Dashboard (optional, for Spotify URL resolution)",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "TIKHUB_API_TOKEN",
+      "description": "TikHub API token from https://user.tikhub.io/ (optional, for TikTok audio download)",
+      "requiredAtBoot": false
+    }
+  ]
+}
