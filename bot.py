@@ -143,9 +143,6 @@ def download_audio_from_link(url: str, output_base_path: str) -> tuple[bool, str
         'default_search': 'ytsearch',
     }
 
-    if os.path.exists("cookies.txt"):
-        ydl_opts['cookiefile'] = "cookies.txt"
-
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(query_or_url, download=True)
