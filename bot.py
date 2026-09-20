@@ -5,6 +5,8 @@ import tempfile
 import subprocess
 import time
 import re
+import urllib.request
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -19,6 +21,7 @@ GUILD_ID = os.environ.get("DISCORD_GUILD_ID")
 
 SPOTIPY_CLIENT_ID = os.environ.get("SPOTIPY_CLIENT_ID")
 SPOTIPY_CLIENT_SECRET = os.environ.get("SPOTIPY_CLIENT_SECRET")
+TIKHUB_API_TOKEN = os.environ.get("TIKHUB_API_TOKEN") # Token đăng ký tại https://user.tikhub.io/
 
 MAX_FILE_MB = 25
 ALLOWED_EXT = {".mp3", ".wav", ".m4a", ".ogg", ".flac"}
@@ -60,7 +63,58 @@ def resolve_spotify_track(url: str) -> Optional[str]:
         pass
     return None
 
+def download_tiktok_via_tikhub(url: str, output_base_path: str) -> tuple[bool, str, str, str]:
+    """Tải âm thanh TikTok/Douyin thông qua TikHub API"""
+    if not TIKHUB_API_TOKEN:
+        return False, "Thiếu TIKHUB_API_TOKEN trong cấu hình môi trường.", "", ""
+
+    api_endpoint = f"https://api.tikhub.io/api/v1/tiktok/web/fetch_post_detail?url={urllib.parse.quote(url)}"
+    req = urllib.request.Request(api_endpoint)
+    req.add_header("Authorization", f"Bearer {TIKHUB_API_TOKEN}")
+
+    try:
+        with urllib.request.urlopen(req) as response:
+            res_data = json.loads(response.read().decode())
+
+        if res_data.get("code") != 0 and res_data.get("status_code") != 0:
+            msg = res_data.get("msg") or res_data.get("message") or "Lỗi từ TikHub API"
+            return False, f"TikHub API Error: {msg}", "", ""
+
+        data = res_data.get("data", {})
+        
+        # Trích xuất tiêu đề bài viết/video
+        title = data.get("desc") or "TikTok Audio"
+        title = title[:50]  # Giới hạn độ dài tiêu đề
+
+        # Tìm URL nhạc (Audio)
+        music_info = data.get("music", {}) or data.get("music_info", {})
+        audio_url = music_info.get("play_url", {}).get("url_list", [None])[0] or music_info.get("play_url")
+
+        if not audio_url:
+            return False, "Không tìm thấy đường dẫn âm thanh trong video TikTok này.", "", ""
+
+        # Tải file âm thanh gốc về máy
+        temp_audio_path = output_base_path + "_raw"
+        urllib.request.urlretrieve(audio_url, temp_audio_path)
+
+        # Chuyển đổi file âm thanh sang chuẩn WAV thông qua FFmpeg
+        final_wav = output_base_path + ".wav"
+        ffmpeg_cmd = ["ffmpeg", "-y", "-i", temp_audio_path, "-vn", "-ar", "44100", "-ac", "2", final_wav]
+        subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+
+        if os.path.exists(temp_audio_path):
+            os.remove(temp_audio_path)
+
+        return True, "", final_wav, title
+
+    except Exception as e:
+        return False, f"Lỗi tải TikTok: {str(e)}", "", ""
+
 def download_audio_from_link(url: str, output_base_path: str) -> tuple[bool, str, str, str]:
+    # Nếu là link TikTok/Douyin -> Xử lý bằng TikHub API
+    if "tiktok.com" in url or "douyin.com" in url:
+        return download_tiktok_via_tikhub(url, output_base_path)
+
     import yt_dlp
     query_or_url = url
     if "spotify.com" in url:
@@ -70,11 +124,15 @@ def download_audio_from_link(url: str, output_base_path: str) -> tuple[bool, str
         else:
             query_or_url = f"ytsearch1:{url}"
 
-ydl_opts = {
+    # Cấu hình yt-dlp với client tv_embedded
+    ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': output_base_path,
-        'username': 'oauth2',
-        'password': '',
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['tv_embedded']
+            }
+        },
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'wav',
@@ -113,6 +171,7 @@ ydl_opts = {
         return True, "", final_file, title
     except Exception as e:
         return False, str(e), "", ""
+
 def run_transkun_cli(input_path: str, output_path: str) -> tuple[bool, str]:
     cmd = [sys.executable, "-m", "transkun.transcribe", input_path, output_path, "--device", "cpu"]
     env = os.environ.copy()
@@ -142,10 +201,10 @@ def analyze_midi(midi_path: str) -> dict:
             stats["tempo"] = 0.0
     return stats
 
-@tree.command(name="transcribe", description="Chuyển đổi âm thanh thành MIDI")
+@tree.command(name="transcribe", description="Chuyển đổi âm thanh (File/YouTube/TikTok) thành MIDI")
 @app_commands.describe(
-    file="File âm thanh (mp3, wav...)",
-    url="Link (Spotify, YouTube...)"
+    file="File âm thanh tùy chọn (mp3, wav...)",
+    url="Đường dẫn tùy chọn (TikTok, YouTube, Spotify...)"
 )
 async def transcribe(
     interaction: discord.Interaction, 
@@ -154,7 +213,7 @@ async def transcribe(
 ):
     if not file and not url:
         await interaction.response.send_message(
-            embed=minimal_embed("Lỗi", "Vui lòng đính kèm file hoặc URL."),
+            embed=minimal_embed("Lỗi", "Vui lòng tải lên 1 file âm thanh hoặc điền 1 URL."),
             ephemeral=True,
         )
         return
@@ -165,10 +224,8 @@ async def transcribe(
         input_audio_path = os.path.join(tmp, "input_track")
         midi_output_path = os.path.join(tmp, "output.mid")
         
-        # Tiêu đề tạm thời
         display_title = Path(file.filename).stem if file else "Processing URL..."
         
-        # Giao diện Đang xử lý (Giống Image 1)
         working_desc = "░░░░░░░░░░░░░░░░░░░░ **0%**\n\nworking"
         await interaction.edit_original_response(embed=minimal_embed(display_title, working_desc))
 
@@ -183,13 +240,12 @@ async def transcribe(
         elif file:
             ext = Path(file.filename).suffix.lower()
             if ext not in ALLOWED_EXT or file.size > MAX_FILE_MB * 1024 * 1024:
-                await interaction.edit_original_response(embed=minimal_embed("Lỗi định dạng/dung lượng", "File không hợp lệ hoặc quá lớn."))
+                await interaction.edit_original_response(embed=minimal_embed("Lỗi định dạng/dung lượng", "File không hợp lệ hoặc vượt quá 25MB."))
                 return
 
             input_audio_path = os.path.join(tmp, f"input{ext}")
             await file.save(input_audio_path)
 
-        # Cập nhật lại tên bài nếu là URL
         await interaction.edit_original_response(embed=minimal_embed(display_title, working_desc))
 
         # Xử lý Transkun
@@ -199,13 +255,11 @@ async def transcribe(
             await interaction.edit_original_response(embed=minimal_embed("Thất bại", f"```\n{err}\n```"))
             return
 
-        # Đọc thông số MIDI
         try:
             stats = await asyncio.to_thread(analyze_midi, midi_output_path)
         except Exception:
             stats = None
 
-        # Giao diện Hoàn thành (Giống Image 2)
         if stats:
             stats_ui = f"` {stats['note_count']} notes ` ` {stats['tempo']} BPM ` ` {fmt_duration(stats['duration'])} `"
         else:
@@ -213,14 +267,13 @@ async def transcribe(
 
         description = (
             f"{stats_ui}\n\n"
-            f"Hãy sử dụng lại lệnh `/transcribe` trong <#1545367143359713330> để chuyển đổi MP3 sang MIDI, và chuyển đổi liên kết sang MIDI.\n\n" # Bạn có thể thay ID kênh showcase của bạn vào đây
+            f"Hãy sử dụng lại lệnh `/transcribe` để chuyển đổi MP3/TikTok/YouTube sang MIDI.\n\n"
             f"{interaction.user.mention}"
         )
 
         finished_embed = minimal_embed(display_title, description)
 
-        # Chuẩn bị file gửi kèm (Khi đính kèm file cùng embed, Discord sẽ tự động nhúng file vào trong khối embed)
-        safe_filename = "".join(c for c in display_title if c.isalnum() or c in " _-").strip()
+        safe_filename = "".join(c for c in display_title if c.isalnum() or c in " _-").strip() or "output"
         midi_file = discord.File(midi_output_path, filename=f"{safe_filename}.mid")
 
         await interaction.edit_original_response(embed=finished_embed, attachments=[midi_file])
