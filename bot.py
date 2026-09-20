@@ -124,13 +124,25 @@ def download_audio_from_link(url: str, output_base_path: str) -> tuple[bool, str
         else:
             query_or_url = f"ytsearch1:{url}"
 
-    # Cấu hình yt-dlp với client tv_embedded
+    # Decode YouTube cookies if provided (base64-encoded Netscape cookies.txt)
+    cookiefile = None
+    cookies_b64 = os.environ.get("YOUTUBE_COOKIES_B64", "").strip()
+    if cookies_b64:
+        import base64
+        cookiefile = os.path.join(os.path.dirname(output_base_path), "yt_cookies.txt")
+        try:
+            with open(cookiefile, "wb") as f:
+                f.write(base64.b64decode(cookies_b64))
+        except Exception:
+            cookiefile = None
+
+    # Cấu hình yt-dlp — thử nhiều client để tránh bot detection
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': output_base_path,
         'extractor_args': {
             'youtube': {
-                'player_client': ['tv_embedded']
+                'player_client': ['tv', 'ios', 'web_safari', 'android_vr']
             }
         },
         'postprocessors': [{
@@ -142,6 +154,8 @@ def download_audio_from_link(url: str, output_base_path: str) -> tuple[bool, str
         'no_warnings': True,
         'default_search': 'ytsearch',
     }
+    if cookiefile:
+        ydl_opts['cookiefile'] = cookiefile
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:

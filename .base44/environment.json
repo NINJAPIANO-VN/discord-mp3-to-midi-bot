@@ -28,6 +28,11 @@
       "name": "TIKHUB_API_TOKEN",
       "description": "TikHub API token from https://user.tikhub.io/ (optional, for TikTok audio download)",
       "requiredAtBoot": false
+    },
+    {
+      "name": "YOUTUBE_COOKIES_B64",
+      "description": "Base64-encoded Netscape cookies.txt for YouTube auth — export from browser with a cookies extension, then base64 encode (optional, needed if YouTube blocks client rotation)",
+      "requiredAtBoot": false
     }
   ]
 }
