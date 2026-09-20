@@ -39,9 +39,3 @@ jobs:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
           DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
           YT_COOKIES: ${{ secrets.YT_COOKIES }}
-          TIKHUB_API_TOKEN: ${{ secrets.TIKHUB_API_TOKEN }}
-        run: |
-          if [ -n "$YT_COOKIES" ]; then
-            echo "$YT_COOKIES" > cookies.txt
-          fi
-          python bot.py
